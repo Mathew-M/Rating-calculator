@@ -1,8 +1,13 @@
 from tkinter import *
 from tkinter import ttk
 from tkinter import messagebox
+from tkinter import simpledialog
 import pandas as pd
 import datetime
+import dropbox
+from dropbox.files import WriteMode
+from ping3 import ping
+from pathlib import Path
 
 	
 participants = "participants.csv"
@@ -10,7 +15,19 @@ before_participants = "reserve/before_participants.csv"
 all_record = "all_record.csv"
 before_record = "reserve/before_record.csv"
 
+dropbox_access_token=""
+dropbox_path_1 = '/rating/participants.csv'
+dropbox_path_2 = '/rating/all_record.csv'
 
+updown_pass = ""
+
+def make_default():
+	df_default_participants = pd.DataFrame(columns=['氏名', 'レート', '勝', '負', '勝率'])
+	df_default_record = pd.DataFrame(columns=['日付', '勝者', '勝者対戦前レート', '勝者対戦後レート', '敗者', '敗者対戦前レート', '敗者対戦後レート', '変動', '時間残し'])
+	df_default_participants.to_csv(participants, index=False)
+	df_default_record.to_csv(all_record, index=False)
+	df_default_participants.to_csv(before_participants, index=False)
+	df_default_record.to_csv(before_record, index=False)
 
 def rate_calc(result):
 	df_participants = pd.read_csv(participants)
@@ -50,8 +67,9 @@ def rate_calc(result):
 	df_all_record.to_csv(all_record, index=False)
 
 root = Tk()
-root.title('Rating Calculator')
+root.title('Rating Calculator v1.1')
 root.geometry('910x500')
+
 
 def reload():
 	participants_show('')
@@ -275,13 +293,59 @@ def undo():
 def reset():
 	confirm = messagebox.askyesno('確認', 'この操作は取り消せません。\n初期化しますか？')
 	if confirm == True:
-		df_default_participants = pd.DataFrame(columns=['氏名', 'レート', '勝', '負', '勝率'])
-		df_default_record = pd.DataFrame(columns=['日付', '勝者', '勝者対戦前レート', '勝者対戦後レート', '敗者', '敗者対戦前レート', '敗者対戦後レート', '変動', '時間残し'])
-		df_default_participants.to_csv(participants, index=False)
-		df_default_record.to_csv(all_record, index=False)
-		df_default_participants.to_csv(before_participants, index=False)
-		df_default_record.to_csv(before_record, index=False)
+		make_default()
 		reload()
+
+def upload():
+	ping_return = ping('yahoo.co.jp') # ネットワーク接続確認
+	if ping_return == False:
+		messagebox.showerror('エラー', 'インターネットに接続されていません。')
+	else:
+		upload_pass = simpledialog.askstring("アップロード", 'パスワードを入力してください')
+		if upload_pass == updown_pass:
+			client = dropbox.Dropbox(dropbox_access_token) # アカウントをリンク
+			with open(participants, "rb") as f:
+				client.files_upload(f.read(), dropbox_path_1, mode=WriteMode('overwrite'))
+			with open(all_record, "rb") as f:
+				client.files_upload(f.read(), dropbox_path_2, mode=WriteMode('overwrite'))
+			messagebox.showinfo('確認', 'アップロード完了')
+		elif upload_pass == None:
+			pass
+		else:
+			messagebox.showerror('認証失敗', 'パスワードが間違っています')
+
+def download():
+	ping_return = ping('yahoo.co.jp')
+	if ping_return == False:
+		messagebox.showerror('エラー', 'インターネットに接続されていません。')
+	else:
+		download_pass = simpledialog.askstring("ダウンロード", 'パスワードを入力してください')
+		if download_pass == updown_pass: 
+			client = dropbox.Dropbox(dropbox_access_token) # アカウントをリンク
+			with open(participants, "wb") as f:
+				metadata, res = client.files_download(path=dropbox_path_1)
+				f.write(res.content)
+			with open(all_record, "wb") as f:
+				metadata, res = client.files_download(path=dropbox_path_2)
+				f.write(res.content)
+			messagebox.showinfo('確認', 'ダウンロード完了')
+			reload()
+		elif download_pass == None:
+			pass
+		else:
+			messagebox.showerror('認証失敗', 'パスワードが間違っています')
+
+def bom_convert(path):
+	with open(path, encoding='utf8') as f_in:
+		data = f_in.read()
+	with open(path, 'w', encoding='utf_8_sig') as f_out:
+		f_out.write(data)
+
+def nobom_convert(path):
+	with open(path, encoding='utf_8_sig') as f_in:
+		data = f_in.read()
+	with open(path, 'w', encoding='utf8') as f_out:
+		f_out.write(data)
 
 def filter_name():
 	frame4 = ttk.Frame(root)
@@ -298,22 +362,46 @@ def filter_name():
 	personal_button = ttk.Button(frame4, text='検索', padding=5, width=5, command=lambda: personal_filter(personal.get()))
 	personal_button.grid(row=0, column=1)
 
-	result_add_button = ttk.Button(frame4, text='結果追加', padding=5, command=make_result_add)
+	result_add_button = ttk.Button(frame4, text='結果追加', padding=5, width=12, command=make_result_add)
 	result_add_button.grid(row=1, column=0, sticky=N)
-	user_add_button = ttk.Button(frame4, text='ユーザー追加', padding=5, command=make_user_add)
+	user_add_button = ttk.Button(frame4, text='ユーザー追加', padding=5, width=12, command=make_user_add)
 	user_add_button.grid(row=2, column=0, sticky=N)
-	undo_button = ttk.Button(frame4, text='直前操作取消', padding=5, command=undo)
+	undo_button = ttk.Button(frame4, text='直前操作取消', padding=5, width=12, command=undo)
 	undo_button.grid(row=3, column=0, sticky=N)
 
 
-	reload_button = ttk.Button(frame4, text='画面更新', padding=5, command=reload)
+	reload_button = ttk.Button(frame4, text='画面更新', padding=5, width=12, command=reload)
 	reload_button.grid(row=4, column=0, sticky=N)
+
+	reload_button = ttk.Button(frame4, text='UPLOAD', padding=5, width=12, command=upload)
+	reload_button.grid(row=5, column=0, sticky=N)
 	
-	reset_button = ttk.Button(frame4, text='初期化', padding=5, command=reset)
-	reset_button.grid(row=5, column=0, sticky=S)
+	reload_button = ttk.Button(frame4, text='DOWNLOAD', padding=5, width=12, command=download)
+	reload_button.grid(row=6, column=0, sticky=N)
+
+	bom_convert_button = ttk.Button(frame4, text='BOM変換', padding=5, width=12, command=lambda:[bom_convert(participants), bom_convert(all_record), messagebox.showinfo('確認', 'BOM変換完了')])
+	bom_convert_button.grid(row=7, column=0, sticky=N)
+
+	reset_button = ttk.Button(frame4, text='初期化', padding=5, width=12, command=reset)
+	reset_button.grid(row=8, column=0, sticky=S)
 
 
 if __name__ == "__main__":
-	reload()
-
-	root.mainloop()
+	try:
+		reload()
+		root.mainloop()
+	except FileNotFoundError:
+		d = Path('reserve')
+		d.mkdir()
+		f = Path(before_participants)
+		f.touch()
+		f = Path(before_record)
+		f.touch()
+		make_default()
+		reload()
+		root.mainloop()
+	except KeyError:
+		nobom_convert(participants)
+		nobom_convert(all_record)
+		reload()
+		root.mainloop()
