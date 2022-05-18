@@ -9,6 +9,7 @@
 - Filtering
 - Dropbox linkage (upload/download)
 - Bom converting (It prevents garbled text which arise between utf-9 and shift-JIS)
+- Excel sync
 
 # Requirement
 ```
@@ -20,6 +21,7 @@ future==0.18.2
 idna==3.3
 importlib-metadata==4.10.0
 llvmlite==0.38.0
+openpyxl==3.0.9
 pandas==1.3.5
 pefile==2021.9.3
 ping3==3.0.2
@@ -42,6 +44,7 @@ zipp==3.6.0
 Push Add User button and fill in default rates and usernames in popup.
 2. Add results
 Push Add Result button and fill in winners and losers in the popup.
+OR Edit "result_add.xlsx" and Push "Add by file" button. (tip: the scope is under "##", so overwriting is usable.)
 3. Set dropbox_access_token on line18 (option)
 ```dropbox_access_token="hogehogehogehogehoge"```
 4. Set up_down_password on line22 (option)
