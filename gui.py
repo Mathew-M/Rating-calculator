@@ -2,12 +2,15 @@ from tkinter import *
 from tkinter import ttk
 from tkinter import messagebox
 from tkinter import simpledialog
+import openpyxl
 import pandas as pd
 import datetime
 import dropbox
 from dropbox.files import WriteMode
 from ping3 import ping
 from pathlib import Path
+from openpyxl import Workbook
+
 
 	
 participants = "participants.csv"
@@ -19,55 +22,77 @@ dropbox_access_token=""
 dropbox_path_1 = '/rating/participants.csv'
 dropbox_path_2 = '/rating/all_record.csv'
 
-updown_pass = ""
+updown_pass = ''
 
 def make_default():
 	df_default_participants = pd.DataFrame(columns=['氏名', 'レート', '勝', '負', '勝率'])
 	df_default_record = pd.DataFrame(columns=['日付', '勝者', '勝者対戦前レート', '勝者対戦後レート', '敗者', '敗者対戦前レート', '敗者対戦後レート', '変動', '時間残し'])
-	df_default_participants.to_csv(participants, index=False)
-	df_default_record.to_csv(all_record, index=False)
-	df_default_participants.to_csv(before_participants, index=False)
-	df_default_record.to_csv(before_record, index=False)
+	try:
+		df_default_participants.to_csv(participants, index=False)
+		df_default_record.to_csv(all_record, index=False)
+		df_default_participants.to_csv(before_participants, index=False)
+		df_default_record.to_csv(before_record, index=False)
+		xlsx_sync()
+	except PermissionError:
+		messagebox.showerror('権限エラー', '開かれている*.csvファイル、*.xlsxファイルを閉じてください。')
+
 
 def rate_calc(result):
 	df_participants = pd.read_csv(participants)
-	df_participants.to_csv(before_participants, index=False) # undo用の保存
+	try:
+		df_participants.to_csv(before_participants, index=False) # undo用の保存
+	except PermissionError:
+		messagebox.showerror('権限エラー', '開かれているreserve/before_participants.csvを閉じてください。')
 
 	df_result = result
 	game_date = datetime.date.today()
 
 	df_all_record = pd.read_csv(all_record)
-	df_all_record.to_csv(before_record, index=False) # undo用の保存
+	try:
+		df_all_record.to_csv(before_record, index=False) # undo用の保存
+	except PermissionError:
+		messagebox.showerror('権限エラー', '開かれているreserve/before_record.csvを閉じてください。')
 
+	name_list = df_participants["氏名"].to_list()
 	for row in df_result.itertuples(name=None):
 		winner_name, loser_name, time_rest = row[1], row[2], row[3]
-		winner_rate = df_participants.query('氏名 == @winner_name').iat[0, 1]
-		loser_rate = df_participants.query('氏名 == @loser_name').iat[0, 1]
+		if winner_name in name_list and loser_name in name_list:
+			winner_rate = df_participants.query('氏名 == @winner_name').iat[0, 1]
+			loser_rate = df_participants.query('氏名 == @loser_name').iat[0, 1]
 
-		if str(row[3]) == '1':
-			fluctuation = round(((loser_rate-winner_rate+400)/25))*2
-			time_rest = 'あり'
+			if str(row[3]) == '1':
+				fluctuation = round(((loser_rate-winner_rate+400)/25))*2
+				time_rest = '1'
+			else:
+				fluctuation = round((loser_rate-winner_rate+400)/25)
+				time_rest = '-'
+
+			winner_new_rate = winner_rate + fluctuation
+			loser_new_rate = loser_rate - fluctuation
+			df_participants.loc[df_participants['氏名']==winner_name, 'レート'] = winner_new_rate
+			df_participants.loc[df_participants['氏名']==loser_name, 'レート'] = loser_new_rate
+
+			df_all_record.loc[len(df_all_record)] = [game_date, winner_name, winner_rate, winner_new_rate, loser_name, loser_rate, loser_new_rate, fluctuation, time_rest]
 		else:
-			fluctuation = round((loser_rate-winner_rate+400)/25)
-			time_rest = '-'
+			pass
 
-		winner_new_rate = winner_rate + fluctuation
-		loser_new_rate = loser_rate - fluctuation
-		df_participants.loc[df_participants['氏名']==winner_name, 'レート'] = winner_new_rate
-		df_participants.loc[df_participants['氏名']==loser_name, 'レート'] = loser_new_rate
-		df_participants.loc[df_participants['氏名']==winner_name, '勝'] += 1
-		df_participants.loc[df_participants['氏名']==loser_name, '負'] += 1
-		df_participants.loc[df_participants['氏名']==winner_name, '勝率'] = (df_participants.query('氏名 == @winner_name').iat[0, 2])/(df_participants.query('氏名 == @winner_name').iat[0, 2]+df_participants.query('氏名 == @winner_name').iat[0, 3])
-		df_participants.loc[df_participants['氏名']==loser_name, '勝率'] = (df_participants.query('氏名 == @loser_name').iat[0, 2])/(df_participants.query('氏名 == @loser_name').iat[0, 2]+df_participants.query('氏名 == @loser_name').iat[0, 3])
+	
+	for name in name_list:
+		win = len(df_all_record.query("勝者 == @name"))
+		lose = len(df_all_record.query("敗者 == @name"))
+		df_participants.loc[df_participants['氏名']==name, '勝'] = win
+		df_participants.loc[df_participants['氏名']==name, '負'] = lose
+		if win+lose > 0:
+			df_participants.loc[df_participants['氏名']==name, '勝率'] = win/(win+lose)
+	try:
+		df_participants.to_csv(participants, index=False)
+		df_all_record.to_csv(all_record, index=False)
+	except PermissionError:
+		messagebox.showerror('権限エラー', '開かれているparticipants.csvまたはall_record.csvを閉じてください。')
 
-		df_all_record.loc[len(df_all_record)] = [game_date, winner_name, winner_rate, winner_new_rate, loser_name, loser_rate, loser_new_rate, fluctuation, time_rest]
-
-	df_participants.to_csv(participants, index=False)
-
-	df_all_record.to_csv(all_record, index=False)
 
 root = Tk()
-root.title('Rating Calculator v1.1')
+root.title('Rating Calculator v1.3')
 root.geometry('910x500')
 
 
@@ -201,19 +226,79 @@ def make_result_add():
 
 
 	def result_entry():
+		wb = openpyxl.load_workbook("result_add.xlsx")
+		ws = wb['Result']
+
 		result_data = []
 		df_result2 = pd.DataFrame(columns=['winner', 'loser', 'time'])
 		for i in range(n):
 			result_data.append([items1[i].get(), items2[i].get(), items3[i].get()])
 		for rec in result_data:
 			if rec[0] != '' and rec[1] != '' and rec[0] != rec[1]:
-				df_result2.loc[len(df_result2)] = [rec[0], rec[1], rec[2]]
+				df_result2.loc[len(df_result2)] = [rec[0], rec[1], rec[2]]  # all_record.csv用
+				ws.cell(row=ws.max_row+1, column=1).value = rec[0]  # cellのrowとcolumnのindexは1始まり
+				ws.cell(row=ws.max_row, column=2).value = rec[1]  
+				ws.cell(row=ws.max_row-1, column=3).value = rec[2]  
+		try:
+			wb.save("result_add.xlsx")
+			rate_calc(df_result2)
+		except PermissionError:
+				messagebox.showerror('権限エラー', '開かれているresult_add.xlsxを閉じてください。')
+
 		# df_result2.to_csv('result2.csv', index=False)
-		rate_calc(df_result2)
+		print(df_result2)
 		reload()
 		result_window.destroy()
 
-	result_button =ttk.Button(frame6, text='追加', padding=5, command=result_entry)
+	def result_file_entry():
+		df_participants = pd.read_csv(participants)
+		df_all_record = pd.read_csv(all_record)
+		df_result = pd.read_excel('result_add.xlsx')
+
+		sharp_2 = df_result.query('winner == "##" | loser == "#"')
+		if len(sharp_2) == 0:
+			messagebox.showerror('入力エラー', '##が入力されていません')
+		elif len(sharp_2) >= 2:
+			messagebox.showerror('入力エラー', '##が複数行に入力されています')
+		elif len(sharp_2) == 1:
+			thre = int(df_result.query('winner == "##"').index[0])
+
+			if thre == len(df_all_record):
+				print("normal")
+			if thre > len(df_all_record):
+				print("error")
+			if thre < len(df_all_record):
+				print("overwrite")
+				name_list = df_participants["氏名"].to_list()
+				for name in name_list:
+					for s in range(thre, len(df_all_record)):
+						if df_all_record.at[s, "勝者"] == name:
+							df_participants.loc[df_participants['氏名']==name, 'レート'] = df_all_record.at[s, "勝者対戦前レート"]
+							break
+						if df_all_record.at[s, "敗者"] == name:
+							df_participants.loc[df_participants['氏名']==name, 'レート'] = df_all_record.at[s, "敗者対戦前レート"]
+							break
+						else:
+							pass
+			
+			df_result = df_result[thre+1:]
+			df_all_record = df_all_record[:thre]
+
+			try:
+				df_participants.to_csv(participants, index=False)
+				df_all_record.to_csv(all_record, index=False)
+				rate_calc(df_result)
+			except PermissionError:
+				messagebox.showerror('権限エラー', '開かれているparticipants.csvまたはall_record.csvを閉じてください。')
+
+			print(df_result)
+
+		reload()
+		result_window.destroy()
+
+	result_file_button = ttk.Button(frame6, text='ファイルで追加', padding=5, command=result_file_entry)
+	result_file_button.grid(row=n+1, column=0)
+	result_button = ttk.Button(frame6, text='直接追加', padding=5, command=result_entry)
 	result_button.grid(row=n+1, column=1)
 
 def make_user_add():
@@ -250,9 +335,17 @@ def make_user_add():
 
 	def user_entry():
 		df_participants =pd.read_csv(participants)
-		df_participants.to_csv(before_participants, index=False) # undo用の保存
+		try:
+			df_participants.to_csv(before_participants, index=False) # undo用の保存
+		except PermissionError:
+			messagebox.showerror('権限エラー', '開かれているreserve/before_participants.csvを閉じてください。')
 		df_all_record = pd.read_csv(all_record)
-		df_all_record.to_csv(before_record, index=False) # undo用の保存
+		try:
+			df_all_record.to_csv(before_record, index=False) # undo用の保存
+		except PermissionError:
+			messagebox.showerror('権限エラー', '開かれているreserve/before_record.csvを閉じてください。')
+
+		wb = openpyxl.load_workbook("result_add.xlsx")
 		exist_user = df_participants['氏名'].to_list()
 		user_add_data = []
 		for i in range(n):
@@ -270,9 +363,19 @@ def make_user_add():
 			if user[0] != '':
 				try:
 					df_participants.loc[len(df_participants)] = [user[0], int(user[1]), 0, 0, 0]
+					wb["Name_list"].cell(row=len(df_participants)+2, column=1).value = user[0]  # cellのrowとcolumnのindexは1始まり
 				except ValueError:
 					messagebox.showerror('入力エラー', '入力が不正な値です')
-		df_participants.to_csv(participants, index=False)
+		try:
+			wb.save("result_add.xlsx")
+		except PermissionError:
+			messagebox.showerror('権限エラー', '開かれているresult_add.xlsxを閉じてください。')
+
+		try:
+			df_participants.to_csv(participants, index=False)
+		except PermissionError:
+			messagebox.showerror('権限エラー', '開かれているparticipants.csvを閉じてください。')
+
 		reload()
 		user_window.destroy()
 
@@ -329,6 +432,7 @@ def download():
 				metadata, res = client.files_download(path=dropbox_path_2)
 				f.write(res.content)
 			messagebox.showinfo('確認', 'ダウンロード完了')
+			xlsx_sync()
 			reload()
 		elif download_pass == None:
 			pass
@@ -338,14 +442,40 @@ def download():
 def bom_convert(path):
 	with open(path, encoding='utf8') as f_in:
 		data = f_in.read()
-	with open(path, 'w', encoding='utf_8_sig') as f_out:
-		f_out.write(data)
+	try:
+		with open(path, 'w', encoding='utf_8_sig') as f_out:
+			f_out.write(data)
+		messagebox.showinfo('確認', path+' BOM変換完了')
+	except PermissionError:
+		messagebox.showerror('権限エラー', '開かれている*.csvファイルを閉じてください。')
 
 def nobom_convert(path):
 	with open(path, encoding='utf_8_sig') as f_in:
 		data = f_in.read()
-	with open(path, 'w', encoding='utf8') as f_out:
-		f_out.write(data)
+	try:
+		with open(path, 'w', encoding='utf8') as f_out:
+			f_out.write(data)
+	except PermissionError:
+		messagebox.showerror('権限エラー', '開かれている*.csvファイルを閉じてください。')
+
+def xlsx_sync():
+	df_participants = pd.read_csv(participants)["氏名"].to_list()
+	df_all_record = pd.read_csv(all_record)
+	df_all_record_w = df_all_record["勝者"].to_list()
+	df_all_record_l = df_all_record["敗者"].to_list()
+	df_all_record_t = df_all_record["時間残し"].to_list()
+
+	df_participants.insert(0, '##')
+
+	df1 = pd.DataFrame(list(zip(df_all_record_w,df_all_record_l,df_all_record_t)), columns=['winner', 'loser', 'time'])
+	df2 = pd.DataFrame(df_participants, columns=['氏名'])
+	try:
+		df1.to_excel('result_add.xlsx', sheet_name='Result', index=False)
+		with pd.ExcelWriter('result_add.xlsx', mode='a') as writer:
+			df2.to_excel(writer, sheet_name='Name_list', index=False)
+		messagebox.showinfo('確認', 'xlsx同期完了')
+	except PermissionError:
+		messagebox.showerror('権限エラー', '開かれているresult_add.xlsxを閉じてください。')
 
 def filter_name():
 	frame4 = ttk.Frame(root)
@@ -379,11 +509,14 @@ def filter_name():
 	reload_button = ttk.Button(frame4, text='DOWNLOAD', padding=5, width=12, command=download)
 	reload_button.grid(row=6, column=0, sticky=N)
 
-	bom_convert_button = ttk.Button(frame4, text='BOM変換', padding=5, width=12, command=lambda:[bom_convert(participants), bom_convert(all_record), messagebox.showinfo('確認', 'BOM変換完了')])
+	bom_convert_button = ttk.Button(frame4, text='BOM変換', padding=5, width=12, command=lambda:[bom_convert(participants), bom_convert(all_record)])
 	bom_convert_button.grid(row=7, column=0, sticky=N)
 
+	sync_button = ttk.Button(frame4, text='xlsx同期', padding=5, width=12, command=xlsx_sync)
+	sync_button.grid(row=8, column=0, sticky=S)
+	
 	reset_button = ttk.Button(frame4, text='初期化', padding=5, width=12, command=reset)
-	reset_button.grid(row=8, column=0, sticky=S)
+	reset_button.grid(row=9, column=0, sticky=S)
 
 
 if __name__ == "__main__":
